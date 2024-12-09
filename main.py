@@ -10,7 +10,7 @@ output = linear(x)
 
 stoch_linear = stochastic_project.graph_manipulation.create_stochastic_graph(linear)
 
-
+# stochastic_branch
 vmap_transformer = stochastic_project.vmap_interprerer.NewVmapApplicator(stoch_linear)
 
 transformed_model = vmap_transformer.transform()
