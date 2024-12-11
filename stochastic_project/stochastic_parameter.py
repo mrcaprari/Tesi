@@ -1,38 +1,108 @@
 import torch
+from torch.nn.modules.lazy import LazyModuleMixin
 
-class StochasticParameter(torch.nn.Module):
-    def __init__(self, mu: torch.Tensor, rho: torch.Tensor):
+
+class GaussianDistribution(torch.nn.Module):
+    def __init__(self, mu=None, std=None, shape=None, register_fn=None):
         super().__init__()
-        if mu.shape != rho.shape:
-            raise ValueError(f"Shape mismatch: mu {mu.shape} and rho {rho.shape} must match.")
-        self.mu = torch.nn.Parameter(mu, requires_grad=True)  # Store mean as a parameter
-        self.rho = torch.nn.Parameter(rho, requires_grad=True)  # Store rho as a parameter
 
-    @classmethod
-    def from_mu_std(cls, mu: torch.nn.Parameter, std: torch.nn.Parameter):
-        if mu.shape != std.shape:
-            raise ValueError(f"Shape mismatch: mu {mu.shape} and std {std.shape} must match.")
-        rho = torch.log(torch.exp(std) - 1)  # Inverse of softplus
-        return cls(mu, rho)
+        shape = self._infer_shape(mu, std, shape)
+        self.shape = torch.Size(shape)
 
-    @classmethod
-    def from_mu(cls, mu: torch.nn.Parameter):
-        std = torch.ones_like(mu)  # Default std
-        return cls.from_mu_std(mu, std)
+        # Initialize parameters with fallback defaults
+        register_fn(self, "mu", self._initialize_param(mu, shape, default=torch.zeros(1)))
+        register_fn(self,"std", self._initialize_param(std, shape, default=torch.ones(1)))
+        
+    def _infer_shape(self, mu, std, shape):
+        """
+        Infers the shape from mu or std if not explicitly provided.
+        """
+        if shape is not None:
+            return shape  # Use provided shape
+        if mu is not None:
+            try: return mu.shape
+            except: ValueError("mu has no 'shape' attribute")
+        if std is not None:
+            try: return std.shape
+            except: ValueError("std has no 'shape' attribute")
+        raise ValueError("At least one of 'mu', 'std', or 'shape' must be specified.")
+        
+    def _initialize_param(self, param, shape, default):
+        if param is None:
+            return default
+        if param.shape == shape:
+            return param
+        if param.numel() == 1:
+            return torch.full(self.shape, param.item())
+        raise ValueError(f"{param.numel()} shape different from distribution shape {self.shape}" )
 
-    @classmethod
-    def from_shape(cls, shape: torch.Size, device=None):
-        mu = torch.zeros(shape, device=device, requires_grad=True)
-        return cls.from_mu(mu)
-
-    @property
-    def std(self):
-        return torch.nn.functional.softplus(self.rho)
-
-    def forward(self, n_samples, *args, **kwargs):
-        epsilon = torch.randn((n_samples, *self.shape), device=self.mu.device)
+    def forward(self, n_samples):
+        epsilon = torch.randn(n_samples, *self.shape)
         return self.mu + self.std * epsilon
 
-    @property
-    def shape(self):
-        return self.mu.shape
+    def __repr__(self):
+        return f"GaussianDistribution(mu={self.mu},\n std={self.std})"
+
+
+
+class GaussianPrior(GaussianDistribution):
+    def __init__(self, mu=None, std=None, shape=None):
+        super().__init__(mu, std, shape, register_fn=self._register_buffer)
+
+    def _register_buffer(self, module, name, param):
+        module.register_buffer(name, param)
+
+
+
+class GaussianParameter(GaussianDistribution):
+    def __init__(self, mu=None, std=None, shape=None, prior=None):
+        if prior is not None:
+            # If a prior is provided, extract its parameters
+            if not isinstance(prior, GaussianPrior):
+                raise TypeError("'prior' must be an instance of GaussianPrior.")
+            mu = prior.mu if mu is None else mu
+            std = prior.std if std is None else std
+            shape = prior.shape if shape is None else shape
+    
+        super().__init__(mu, std, shape, register_fn=self._register_parameter)
+        self.prior = prior or GaussianPrior(shape=self.shape)
+
+    def _register_parameter(self, module, name, param):
+        if param.shape != self.shape:
+            raise ValueError(f"Parameter '{name}' shape {param.shape} does not match expected shape {self.shape}.")
+
+        module.register_parameter(name, torch.nn.Parameter(param))
+
+    def __repr__(self):
+        return (f"GaussianParameter(mu_shape={self.mu.shape}, std_shape={self.std.shape}, "
+                f"prior={repr(self.prior)})")
+
+
+
+class GaussianParticles(torch.nn.modules.lazy.LazyModuleMixin, torch.nn.Module):
+    def __init__(self, prior = None):
+        super().__init__()  # Initialize LazyModuleMixin and Module
+        if prior is None or not isinstance(prior, GaussianPrior):
+            raise TypeError("'prior' must be an instance of GaussianPrior.")
+        self.prior = prior
+        self.particles = torch.nn.UninitializedParameter()  # Lazy initialization of particles
+    
+    def initialize_parameters(self, n_particles):
+        """Materialize and initialize particles based on the prior."""
+        if self.has_uninitialized_params():
+            # Materialize the parameter with the correct shape
+            self.particles.materialize((n_particles, *self.prior.shape))
+
+        # Initialize particles using the prior's forward method
+        with torch.no_grad():
+            self.particles = torch.nn.Parameter(
+                self.prior.forward(n_particles)
+            )
+
+    def forward(self, *args, **kwargs):
+        return self.particles
+
+# prior = GaussianPrior(shape=(2,2))
+# prova1 = GaussianParticles(prior=prior)
+# prova1(n_particles=2)
+# prova2 = GaussianParameter(prior = prior)

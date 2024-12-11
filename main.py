@@ -1,34 +1,53 @@
 import torch
 import stochastic_project
 
-in_features = 10
-out_features= 2
-batch_size = 5
+in_features = 784
+out_features = 10
+hidden_shape = 64
+batch_size = 256
 x = torch.randn(batch_size, in_features)
-linear = torch.nn.Linear(in_features, out_features)
-output = linear(x)
 
-stoch_linear = stochastic_project.graph_manipulation.create_stochastic_graph(linear)
+class BaseModel(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.linear1 = torch.nn.Linear(in_features, hidden_shape)
+        self.linear2 = torch.nn.Linear(hidden_shape, out_features)
 
-# stochastic_branch
-vmap_transformer = stochastic_project.vmap_interprerer.NewVmapApplicator(stoch_linear)
+    def forward(self, x):
+        x = self.linear1(x)
+        return self.linear2(x)
 
-transformed_model = vmap_transformer.transform()
-print(transformed_model.graph)
+# Already existing module 
+prova = BaseModel()
 
-output = transformed_model(x, n_samples =10)
-print(output.shape)
+stochastic_project.utils.convert_to_stochastic_parameters(prova.linear1)
 
-# output = stoch_module.run(x, 50)
-# print(output, output.shape)
+# tracer = stochastic_project.custom_tracers.NoLeafTracer()
+# gf = stochastic_project.graph_factory.GraphFactory(prova, tracer)
+# print(gf.deterministic_graph())
 
-# print(points_to_stochastic_parameters(linear, 'weight'))
+# Prepare transformations 
+#   original_graph = tracer.trace(original_module)
+#   utils.convert_to_stochastic_parameters(original_module)
 
-# x = torch.randn(batch_size, in_features)
+### node manipulations
+#       create_deterministic_graph()
+#           inizializziamo det_graph e det_val_map
+#           sostituiamo nodi
+#           restituiamo torch.fx.GraphModule(original_module, deterministic_graph) 
+#           -> Pronti per chiamare modello
 
-# output = linear(x)
-# print(output)
+#       create_stochastic_graph()
+#           inizializziamo stoch_graph e stoch_val_map
+#           sostituiamo e aggiungiamo nodi
+#           restituiamo torch.fx.GraphModule(original_module, stochastic_graph)
+#           lo passiamo dentro NewVmapApplicator
+#           applichiamo transform() method
+#           -> Pronti per chiamare modello
 
-# det_module = create_deterministic_graph(linear)
+#       
+### NewVmapApplicator
+#   wrap fx_builder
+#   modify run_node
+#   modify call_function
 
-# print(det_module(x))
