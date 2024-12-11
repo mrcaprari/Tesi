@@ -9,9 +9,13 @@ class GaussianDistribution(torch.nn.Module):
         shape = self._infer_shape(mu, std, shape)
         self.shape = torch.Size(shape)
 
-        # Initialize parameters with fallback defaults
+        # Initialize mu parameter with fallback default
         register_fn(self, "mu", self._initialize_param(mu, shape, default=torch.zeros(1)))
-        register_fn(self,"std", self._initialize_param(std, shape, default=torch.ones(1)))
+
+        # Initialize rho parameter (inferred from std) with fallback default
+        std = self._initialize_param(std, shape, default=torch.ones(1))
+        rho = torch.log(torch.exp(std) - 1)  # Inverse of softplus
+        register_fn(self,"rho", rho)
         
     def _infer_shape(self, mu, std, shape):
         """
@@ -35,6 +39,10 @@ class GaussianDistribution(torch.nn.Module):
         if param.numel() == 1:
             return torch.full(self.shape, param.item())
         raise ValueError(f"{param.numel()} shape different from distribution shape {self.shape}" )
+
+    @property
+    def std(self):
+        return torch.nn.functional.softplus(self.rho)
 
     def forward(self, n_samples):
         epsilon = torch.randn(n_samples, *self.shape)
@@ -101,8 +109,3 @@ class GaussianParticles(torch.nn.modules.lazy.LazyModuleMixin, torch.nn.Module):
 
     def forward(self, *args, **kwargs):
         return self.particles
-
-# prior = GaussianPrior(shape=(2,2))
-# prova1 = GaussianParticles(prior=prior)
-# prova1(n_particles=2)
-# prova2 = GaussianParameter(prior = prior)
