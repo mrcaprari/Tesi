@@ -1,11 +1,10 @@
 import torch
 from torch.nn.modules.lazy import LazyModuleMixin
 
-
 class GaussianDistribution(torch.nn.Module):
     def __init__(self, mu=None, std=None, shape=None, register_fn=None):
         super().__init__()
-
+        
         shape = self._infer_shape(mu, std, shape)
         self.shape = torch.Size(shape)
 
@@ -52,14 +51,12 @@ class GaussianDistribution(torch.nn.Module):
         return f"GaussianDistribution(mu={self.mu},\n std={self.std})"
 
 
-
 class GaussianPrior(GaussianDistribution):
     def __init__(self, mu=None, std=None, shape=None):
         super().__init__(mu, std, shape, register_fn=self._register_buffer)
 
     def _register_buffer(self, module, name, param):
         module.register_buffer(name, param)
-
 
 
 class GaussianParameter(GaussianDistribution):
@@ -77,14 +74,13 @@ class GaussianParameter(GaussianDistribution):
 
     def _register_parameter(self, module, name, param):
         if param.shape != self.shape:
-            raise ValueError(f"Parameter '{name}' shape {param.shape} does not match expected shape {self.shape}.")
-
+            print(f"Shape of {name} changed from {param.shape} to {self.shape}")
+            param = torch.full(self.shape, param.item())
         module.register_parameter(name, torch.nn.Parameter(param))
 
     def __repr__(self):
         return (f"GaussianParameter(mu_shape={self.mu.shape}, std_shape={self.std.shape}, "
                 f"prior={repr(self.prior)})")
-
 
 
 class GaussianParticles(torch.nn.modules.lazy.LazyModuleMixin, torch.nn.Module):
@@ -109,3 +105,50 @@ class GaussianParticles(torch.nn.modules.lazy.LazyModuleMixin, torch.nn.Module):
 
     def forward(self, *args, **kwargs):
         return self.particles
+    
+    @property
+    def flattened_particles(self):
+            return torch.flatten(self.particles, start_dim=1)
+
+
+
+
+
+# class Distribution():
+#     def __init__(self, shape, **kwargs):
+#         self.shape = self._infer_shape(shape, kwargs)
+
+#     def _infer_shape(self, shape, *args):
+#         if shape is not None:
+#             return shape  # Use provided shape
+#         for arg in args:
+#             if arg is not None:
+#                 return arg.shape
+#         raise ValueError("Specify a 'shape' or provide an argument with 'shape' attribute")
+
+# class Prior(Distribution):
+#     def __init__(self, shape, **kwargs):
+#         super().__init__(shape, **kwargs)
+#         for name, param in kwargs:
+#             self.register_buffer(name, param)
+
+
+# class Gaussian(torch.nn.Module):
+#     def __init__(self, mu, std):        
+#         if mu is None:
+#             mu = torch.zeros(1)
+#         if std is None:
+#             std = torch.ones(1)
+
+#     def forward(self, n_samples):
+#         epsilon = torch.randn(n_samples, self.shape)
+#         return self.mu + epsilon + self.mu
+
+
+# class RandomParameter(Distribution):
+#     def __init__(self, *args, prior: Prior):
+#         super().__init__()
+#         self.register_module("prior", prior)
+
+#     def _register_attr(self):
+#         return self.register_parameter()

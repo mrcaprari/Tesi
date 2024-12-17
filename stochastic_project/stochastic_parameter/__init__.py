@@ -1,8 +1,12 @@
 from .gaussian_parameter import *
+from .stochastic_factory import *
 
 __all__ = [
     "GaussianDistribution",
     "GaussianPrior",
     "GaussianParameter",
-    "GaussianParticles",
+    "Particle",
+    "torch_randn",
+    "Distribution"
 ]
+

@@ -140,7 +140,7 @@ class CustomTracer(torch.fx.Tracer):
                 node.meta = {**node.meta, 'transform': True}
             else:
                 node.meta = {**node.meta, 'transform': False}
-        if node.op =="call_function" and any(getattr(arg,'meta',{}).get('transform') for arg in node.args):
+        if node.op =="call_function" and any(arg.meta.get('transform', False) for arg in node.args):
             node.meta = {**node.meta, 'transform': True}
         if node.op == "placeholder":
             self.last_placeholder = node
@@ -165,16 +165,16 @@ class MyGraphModuleFactory():
             n_samples_node = self.preliminary_graph.placeholder(name = "n_samples")
     
         for node in self.preliminary_graph.nodes:
-            if getattr(node,'meta',{}.get('transform', False)):
+            if node.meta.get('transform', False):
                 if node.op == "get_attr":
                     self._transform_parameter(self.module, node.target)
                     node.op = "call_module"
                     node.args = (n_samples_node,)
                 elif node.op == "call_function":
-                    in_dims=tuple(0 if getattr(arg,'meta',{}).get('transform')
-                                  else None
-                                  for arg in node.args)
-                    
+                    in_dims = tuple(
+                        0 if arg.meta.get('transform', False) else None
+                        for arg in node.args
+                        )
                     node.meta = {**node.meta, 'in_dims': in_dims}
                 
         return graph
@@ -184,7 +184,6 @@ class MyGraphModuleFactory():
         return torch.fx.GraphModule(self.module, self.new_graph)
 
     def _transform_parameter(self, module, name):
-            print(f"Transforming {name} parameter")
             attrs = name.split('.')
             *path, param_name = attrs
             submodule = module
@@ -204,19 +203,13 @@ def vmap_wrapper(target, in_dims):
 class MyTransformer(torch.fx.Transformer):
     def run_node(self, n):
         if n.op =="call_function":
-            current_in_dims = getattr(n,'meta',{}).get('in_dims', None)
+            current_in_dims = n.meta.get('in_dims', None)
             self.in_dims = current_in_dims
         return super().run_node(n)
     
     def call_function(self, target, args, kwargs):
         if self.in_dims is not None:
-            print("in_dims:",self.in_dims)
-            print("target:", target)
-            print("args:", args)
-            print("kwargs:", kwargs)
             vmap_fn = vmap_wrapper(target, self.in_dims)
-
-            # Pass the vmap-wrapped function as the target
             return super().call_function(vmap_fn, args, kwargs)
         return super().call_function(target, args, kwargs)
     
@@ -245,11 +238,12 @@ class MyModel(torch.nn.Module):
         return self.second(self.linear(x))
 
 # Instantiate and trace the module
-simple_module = SimpleModule()
-x = torch.randn(25, 10)
+#simple_module = SimpleModule()
 prova = MyModel()
+x = torch.randn(25, 10)
 
-my_tracer = CustomTracer()
+transform_list = ['linear','second.bias']
+my_tracer = CustomTracer(transform_list)
 graph, last_place = my_tracer.trace(prova)
 
 graph_fact = MyGraphModuleFactory(prova, graph, last_place)
@@ -257,8 +251,53 @@ new_module = torch.fx.GraphModule(prova, graph_fact.new_graph)
 
 trans_graph = MyTransformer(new_module).transform()
 
+for name, param in trans_graph.named_parameters():
+    print(name, param)
+
 output = trans_graph(x, n_samples = 10)
-print(output.shape)
+
+
+
+###### Trainiamolo #####
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, TensorDataset
+
+def create_toy_dataset(num_samples=100, input_dim=10, seed=42):
+    torch.manual_seed(seed)
+    x = torch.randn(num_samples, input_dim)  # Random input tensor
+    y = x.sum(dim=1, keepdim=True) + torch.randn(num_samples, 1) * 0.1  # Target: sum of inputs + noise
+    return x, y
+
+batch_size = 8
+num_epochs = 20
+learning_rate = 0.01
+
+# Create dataset and DataLoader
+x, y = create_toy_dataset(num_samples=100)
+dataset = TensorDataset(x, y)
+dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+criterion = nn.MSELoss()  # Mean Squared Error loss for regression
+optimizer = optim.Adam(trans_graph.parameters(), lr=learning_rate)
+
+for epoch in range(num_epochs):
+    for batch_idx, (inputs, targets) in enumerate(dataloader):
+        # Forward pass
+        outputs = trans_graph(inputs, n_samples = 50)
+        mean_outputs = torch.mean(outputs,0)
+        loss = criterion(mean_outputs, targets)
+
+        # Backward pass and optimization
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+    print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}")
+
+
+for name, param in trans_graph.named_parameters():
+    print(name, param)
 
 
 # print(graph)

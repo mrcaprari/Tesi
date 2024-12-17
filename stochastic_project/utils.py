@@ -1,6 +1,6 @@
 import torch
 import torch.fx
-from . import stochastic_parameter
+import stochastic_parameter
 
 def convert_to_stochastic_parameters(module: torch.nn.Module):
     for name, param in list(module.named_parameters()):  # Only transform parameters of the current module
@@ -24,3 +24,4 @@ def all_users(node: torch.fx.Node) -> set:
                 collect_users(user)
     collect_users(node)
     return users
+

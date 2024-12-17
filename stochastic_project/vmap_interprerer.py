@@ -15,9 +15,7 @@ class NewVmapApplicator(torch.fx.Transformer):
         super().__init__(module)
     
     def run_node(self, n):
-
         if n.op == "call_function":
-
             self.current_in_dims = tuple(
                 0 if getattr(arg, 'meta', {}).get('additional_map_dim', False) else None
                 for arg in n.args
