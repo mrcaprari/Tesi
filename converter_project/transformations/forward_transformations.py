@@ -23,6 +23,9 @@ def vmap_forward_transformer(module):
     return ForwardTransformer(module).transform()
 
 
+
+
+
 # def vmap_wrapper(target, in_dims):
 #     def wrapped(*args, **kwargs):
 #         return torch.vmap(target, in_dims=in_dims)(*args, **kwargs)

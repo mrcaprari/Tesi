@@ -3,6 +3,7 @@ def gaussian_mean_node(new_node, old_node, n_samples_node, val_map):
         new_node.target = f'{old_node.target}.mu'
     return new_node
 
+
 def random_sample_node(new_node, old_node, n_samples_node, val_map):
     if old_node.op == "get_attr":
         new_node.op = "call_module"

@@ -1,5 +1,5 @@
 import torch
-from stochastic_project.distributions import DistributionFactory, Prior, Particle, Gaussian, RandomParameter
+from converter_project.distributions import DistributionFactory, Prior, Particle, Gaussian, RandomParameter
 
 def to_standard_gaussian(param):
     param_prior = DistributionFactory.create(Gaussian, Prior, shape = param.shape)

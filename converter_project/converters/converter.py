@@ -2,8 +2,8 @@ import torch
 import torch.fx
 import torch.nn as nn
 
-from stochastic_project.module_converter import PreparatoryTracer
-from stochastic_project.transformations import BaseTransformation
+from converter_project.converters import PreparatoryTracer
+from converter_project.transformations import BaseTransformation
 
 class ModuleConverter:
     def __init__(self, transformation_logic):
@@ -28,7 +28,6 @@ class ModuleConverter:
             preliminary_graph,
             last_placeholder,
         )
-
         return new_graph
 
     def _create_transformed_graph(self, preliminary_graph, last_placeholder):
@@ -71,4 +70,8 @@ class ModuleConverter:
         new_graph = self.transform_graph(module, parameter_list)
         new_module = self.transform_module(module, parameter_list)
         transformed_module = torch.fx.GraphModule(new_module, new_graph)
-        return self.transformation_logic.transform_forward(transformed_module)
+        #print("Transformed module:", transformed_module.named_particles())
+        transformed_module = self.transformation_logic.transform_forward(transformed_module)
+        transformed_module = self.transformation_logic.add_methods(transformed_module)
+        
+        return transformed_module
