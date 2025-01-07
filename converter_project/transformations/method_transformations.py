@@ -32,20 +32,16 @@ def compute_kernel_matrix(self):
 
 def perturb_gradients(self):
     self.compute_kernel_matrix()
-    for name, param in self.named_parameters(recurse=True):
-        # Remove the last word after the last dot
-        parent_name = name.rsplit('.', 1)[0]
-        # Check if the parent is a Particle submodule
-        if isinstance(self.get_submodule(parent_name), Particle):
-            self.get_submodule(parent_name).perturb_gradients(self.kernel_matrix)
+    for particle in self.particle_modules:  # Predefined list of Particle modules
+        particle.perturb_gradients(self.kernel_matrix)
 
-
-def lazy_initialize_n_particles(module, n_particles):
+def initialize_particles(module, n_particles):
     module.n_particles = n_particles
+    module.particle_modules = [submodule for submodule in module.modules() if isinstance(submodule, Particle)]
     # Remove the hook after it's executed
-    if hasattr(module, '_lazy_hook'):
-        module._lazy_hook.remove()
-        del module._lazy_hook
+    # if hasattr(module, '_lazy_hook'):
+    #     module._lazy_hook.remove()
+    #     del module._lazy_hook
 
 
 def kl_divergence(self):

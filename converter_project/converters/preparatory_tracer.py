@@ -19,7 +19,17 @@ class PreparatoryTracer(torch.fx.Tracer):
                 node.meta = {**node.meta, 'transform': True}
             else:
                 node.meta = {**node.meta, 'transform': False}
+
         if node.op =="call_function" and any(arg.meta.get('transform', False) for arg in node.args):
             node.meta = {**node.meta, 'transform': True}
+
+        if node.op == "call_method" and any(arg.meta.get('transform', False) for arg in node.args):
+            # Attempt to find a functional equivalent in torch or torch.nn.functional
+            func = getattr(torch, target, None) or getattr(torch.nn.functional, target, None)
+            if func is not None:
+                node.op = "call_function"
+                node.target = func
+                node.args = (args[0], *args[1:])  # Adjust arguments to include the instance
+                node.meta = {**node.meta, 'transform': True}
 
         return node

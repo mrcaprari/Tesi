@@ -3,7 +3,6 @@ import torch
 from converter_project.converters import ModuleConverter
 from converter_project.transformations import GaussianTransformation
 
-
 class MyModel(torch.nn.Module):
     def __init__(self):
         super().__init__()

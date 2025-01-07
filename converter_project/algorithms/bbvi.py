@@ -16,63 +16,58 @@ import torch
 from torch import nn
 from converter_project.transformations import GaussianTransformation
 from converter_project.converters import ModuleConverter
-from converter_project.distributions import Particle, Gaussian, Prior
-
-input_shape = 2
-output_shape = 1
-hidden_shape = 4
-batch_size = 256
-n_particles = 2
-
-class SimpleModule(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.linear = nn.Linear(input_shape, hidden_shape)
-        self.relu = nn.ReLU()
-        self.last = nn.Linear(hidden_shape, output_shape)
-
-    def forward(self, x):
-        x = self.linear(x)
-        x = self.relu(x)
-        x = self.last(x)
-        return x
+from tqdm import tqdm
 
 
-model = SimpleModule()
-x = torch.randn(batch_size, input_shape)
-y = torch.randn(batch_size, output_shape)
+def BBVI(
+        starting_model, 
+        n_samples, 
+        epochs, 
+        dataloader, 
+        loss_fn, 
+        optimizer_fn, 
+        learning_rate, 
+        kl_weight,
+        transform_list = []
+        ):
+    model = ModuleConverter(GaussianTransformation()).convert(starting_model, transform_list)
+    optimizer = optimizer_fn(model.parameters(), lr=learning_rate)
 
-transform_list = ['linear.weight', 'last.bias']
-gaussian_model = ModuleConverter(GaussianTransformation()).convert(model, transform_list)
+    pred_history = []
+    kl_history = []
+    total_history = []
 
+    for epoch in range(epochs):
+        with tqdm(total=len(dataloader), desc=f"Epoch {epoch + 1}/{epochs}") as pbar:
+            for x_batch, y_batch in dataloader:
+                pred_loss, kl_loss, total_loss = BBVI_step(model, n_samples, x_batch, y_batch, loss_fn, optimizer, kl_weight)
 
-loss_fn = nn.MSELoss()
-loss_history = []
+                pred_history.append(pred_loss.detach().cpu().numpy())
+                kl_history.append(kl_loss.detach().cpu().numpy())
+                total_history.append(total_loss.detach().cpu().numpy())
+                
+                pbar.set_postfix(tot_loss=total_loss.item(),
+                                 pred = pred_loss.item(),
+                                 kernel = kl_loss.item())
+                pbar.update(1)
+        
+    return model, pred_history, kl_history, total_history
 
-for i in range(2000):
-    output = gaussian_model(x, n_samples = 500)
-
-    losses = torch.vmap(loss_fn, in_dims=(0, None))(output, y) 
-    kl = gaussian_model.kl_divergence()
-
-    total_loss = losses + kl * 0.0005
-    print(total_loss.mean())
-    loss_history.append(total_loss.mean().detach().numpy())
-
-    total_loss.backward(gradient = torch.ones_like(losses), retain_graph=True)
-
-    optimizer = torch.optim.Adam(gaussian_model.parameters(), lr=0.005)
+def BBVI_step(
+        model, 
+        n_samples, 
+        x, 
+        y, 
+        loss_fn, 
+        optimizer,
+        kl_weight
+        ):
+    
+    optimizer.zero_grad()    
+    output = model(x, n_samples)
+    pred_loss = torch.vmap(loss_fn, in_dims=(0, None))(output, y).mean()
+    kl_loss = model.kl_divergence() * kl_weight
+    total_loss = pred_loss + kl_loss 
+    total_loss.backward()
     optimizer.step()
-
-# plot loss history
-import matplotlib
-matplotlib.use('TkAgg')
-import matplotlib.pyplot as plt
-
-plt.plot(loss_history)
-plt.xlabel('Iteration')
-plt.ylabel('Loss')
-plt.title('Loss History')
-plt.show()
-#plt.savefig('loss_history.png')  # Save the plot as an image
-
+    return pred_loss, kl_loss, total_loss

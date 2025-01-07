@@ -30,6 +30,7 @@ class Particle(torch.nn.modules.lazy.LazyModuleMixin, DistributionRole):
         super().__init__()
         self.register_module("prior", prior)
         self.register_parameter("particles", torch.nn.UninitializedParameter())
+        self.einsum_equations = {}
 
     def initialize_parameters(self, n_particles):
         """Materialize and initialize particles based on the prior."""
@@ -47,15 +48,13 @@ class Particle(torch.nn.modules.lazy.LazyModuleMixin, DistributionRole):
     def flattened_particles(self):
             return torch.flatten(self.particles, start_dim=1)
 
-    def general_product(self, A, B):
-        assert A.shape[0] == A.shape[1], "A must be a square matrix"
-        assert A.shape[1] == B.shape[0], "The first dimension of B must match A's dimensions"
 
-        # Create the einsum equation dynamically
+    def general_product(self, A, B):
         ndim_B = B.ndim
-        suffix = ''.join([chr(ord('k') + i) for i in range(ndim_B - 1)])
-        equation = f"ij,j{suffix}->i{suffix}"
-        # Perform the product
+        if ndim_B not in self.einsum_equations:
+            suffix = ''.join([chr(ord('k') + i) for i in range(ndim_B - 1)])
+            self.einsum_equations[ndim_B] = f"ij,j{suffix}->i{suffix}"
+        equation = self.einsum_equations[ndim_B]
         return torch.einsum(equation, A, B)
 
     def perturb_gradients(self, kernel_matrix):

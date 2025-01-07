@@ -3,7 +3,7 @@ import torch.fx
 import torch.nn as nn
 
 from converter_project.converters import PreparatoryTracer
-from converter_project.transformations import BaseTransformation
+
 
 class ModuleConverter:
     def __init__(self, transformation_logic):
@@ -18,12 +18,12 @@ class ModuleConverter:
         return None
 
     def preliminary_graph(self, module, parameter_list):
-        return self.tracer(parameter_list).trace(module)
+        traced_graph = self.tracer(parameter_list).trace(module)
+        return traced_graph
 
     def transform_graph(self, module, parameter_list):
         preliminary_graph = self.preliminary_graph(module, parameter_list)
         last_placeholder = self.last_placeholder(preliminary_graph)
-
         new_graph = self._create_transformed_graph(
             preliminary_graph,
             last_placeholder,
@@ -66,7 +66,7 @@ class ModuleConverter:
             submodule.register_module(param_name, new_param)
             return True
 
-    def convert(self, module, parameter_list):
+    def convert(self, module, parameter_list = []):
         new_graph = self.transform_graph(module, parameter_list)
         new_module = self.transform_module(module, parameter_list)
         transformed_module = torch.fx.GraphModule(new_module, new_graph)

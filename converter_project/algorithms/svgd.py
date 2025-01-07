@@ -3,40 +3,74 @@ from torch import nn
 from converter_project.transformations import GaussianTransformation, ParticleTransformation
 from converter_project.converters import ModuleConverter
 from converter_project.distributions import Particle, Gaussian, Prior
+from converter_project.transformations.method_transformations import initialize_particles
 from torch.utils.data import DataLoader, TensorDataset
+from tqdm import tqdm
 
 
-def SVGD(starting_model, n_particles, epochs, dataloader, loss_fn, optimizer_fn, learning_rate, transform_list = []):
-    model = ModuleConverter(ParticleTransformation()).convert(starting_model, transform_list)
-
-    model.n_particles = n_particles
-    loss_history = []
-    for epoch in range(epochs):
-        for x_batch, y_batch in dataloader:
-            loss = SVGD_step(model, n_particles, x_batch, y_batch, loss_fn, optimizer_fn, learning_rate)
-            loss_history.append(loss.mean().detach().cpu().numpy())
-        print(f"Epoch {epoch + 1}/{epochs}, Loss: {loss.mean()}")
-
-    return loss_history
-
-
-def SVGD_step(model, n_particles, x, y, loss_fn, optimizer_fn, learning_rate):
-    output = model(x, n_particles)
-
-    optimizer = optimizer_fn(model.parameters(), lr=learning_rate)
-    optimizer.zero_grad()    
-
+def SVGD_step(
+        model, 
+        n_particles, 
+        x, 
+        y, 
+        loss_fn, 
+        optimizer
+        ):
     
+    optimizer.zero_grad()    
     model.compute_kernel_matrix()
-
-    losses = torch.vmap(loss_fn, in_dims=(0, None))(output, y)
-    losses.backward(gradient = torch.ones_like(losses))
+    output = model(x, n_particles)
+    pred_loss = torch.vmap(loss_fn, in_dims=(0, None))(output, y).mean()
+    pred_loss.backward()
 
     model.perturb_gradients()
-    model.kernel_matrix.sum(dim=1).backward(gradient = torch.ones(n_particles))
+    kernel_loss = model.kernel_matrix.sum(dim=1).mean()
+    kernel_loss.backward()
 
     optimizer.step()
 
-    return losses
+    return pred_loss, kernel_loss
+
+
+def SVGD(
+        starting_model, 
+        n_particles, 
+        epochs, 
+        dataloader, 
+        loss_fn, 
+        optimizer_fn, 
+        learning_rate, 
+        transform_list = []):
+    model = ModuleConverter(ParticleTransformation()).convert(starting_model, transform_list)
+    initialize_particles(model, n_particles)
+
+    dataloader_iter = iter(dataloader)
+    x_dummy, _ = next(dataloader_iter)  # Peek first batch
+
+    output = model(x_dummy, n_particles)
+    optimizer = optimizer_fn(model.parameters(), lr=learning_rate)
+
+    pred_history = []
+    kernel_history = []
+    total_history = []
+
+    for epoch in range(epochs):
+        with tqdm(total=len(dataloader), desc=f"Epoch {epoch + 1}/{epochs}") as pbar:
+            for x_batch, y_batch in dataloader:
+                pred_loss, kernel_loss = SVGD_step(model, n_particles, x_batch, y_batch, loss_fn, optimizer)
+                total_loss = pred_loss + kernel_loss
+
+                pred_history.append(pred_loss.detach().cpu().numpy())
+                kernel_history.append(kernel_loss.detach().cpu().numpy())
+                total_history.append(total_loss.detach().cpu().numpy())
+                
+                pbar.set_postfix(tot_loss=total_loss.item(),
+                                 pred = pred_loss.item(),
+                                 kernel = kernel_loss.item())
+                pbar.update(1)
+        
+    return model, pred_history, kernel_history, total_history
+
+
 
 

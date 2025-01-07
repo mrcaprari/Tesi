@@ -1,52 +1,67 @@
 import torch
 from torch import nn
-from converter_project.transformations import GaussianTransformation, ParticleTransformation
-from converter_project.converters import ModuleConverter
-from converter_project.distributions import Particle, Gaussian, Prior
 from torch.utils.data import DataLoader, TensorDataset
 from converter_project.algorithms.svgd import SVGD
+from converter_project.algorithms.bbvi import BBVI
+from converter_project.tests.toy_functions.toy_functions import *
+from converter_project.tests.toy_functions.plot_utilities import *
 
-input_shape = 784
-output_shape = 10
-hidden_shape = 64
-batch_size = 256
-n_particles = 150
+input_shape = 1
+output_shape = 1
+hidden_shape = 16
+hidden_shape_2 = 32
+hidden_shape_3 = 64
+batch_size = 64
+total_data = 64
+n_particles = 50
+epochs = 1000
+learning_rate = 0.2
+kl_weight = 0.5
 
-
-def create_dataloader(batch_size, total_data):
-    input_data = torch.randn(total_data, input_shape)  
-    target_data = torch.sin(input_data)@torch.randn(input_shape, output_shape) 
-    dataset = TensorDataset(input_data, target_data)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    return dataloader
+dataloader, x_truth, y_truth = create_data_and_ground_truth(
+    func = nonlinear_sinusoidal, 
+    input_shape=input_shape,
+    batch_size=batch_size, 
+    total_data=total_data,
+    ground_truth_range=(-3.1,3.1))
 
 class SimpleModule(nn.Module):
     def __init__(self):
         super().__init__()
         self.linear = nn.Linear(input_shape, hidden_shape)
+        self.middle = nn.Linear(hidden_shape, hidden_shape_2)
+        self.middle2 = nn.Linear(hidden_shape_2, hidden_shape_3)
+        self.last = nn.Linear(hidden_shape_3, output_shape)
         self.relu = nn.ReLU()
-        self.last = nn.Linear(hidden_shape, output_shape)
 
     def forward(self, x):
         x = self.linear(x)
         x = self.relu(x)
+        x = self.middle(x)
+        x = self.relu(x)
+        x = self.middle2(x)
+        x = self.relu(x)
         x = self.last(x)
         return x
 
-model = SimpleModule()
-dataloader = create_dataloader(2000, 256)
+det_model = SimpleModule()
 
-loss_history = SVGD(
-    starting_model=model,
-    n_particles = n_particles,
-    epochs = 55,
+model, pred_history, kernel_history, total_history = BBVI(
+    starting_model=det_model,
+    n_samples= n_particles,
+#    n_particles = n_particles,
+    epochs = epochs,
     dataloader=dataloader,
-    loss_fn = nn.MSELoss(),
-    optimizer_fn = torch.optim.Adam, 
-    learning_rate = 0.01
-)
+    loss_fn=torch.nn.MSELoss(),
+    optimizer_fn=torch.optim.Adam,
+    learning_rate=learning_rate,
+    kl_weight=kl_weight
+    )
 
-#plot loss history
-import matplotlib.pyplot as plt
-plt.plot(loss_history)
-plt.show()
+plot_with_uncertainty_from_dataloader(
+    dataloader,
+    x_truth,
+    y_truth,
+    model,
+    n_particles
+)

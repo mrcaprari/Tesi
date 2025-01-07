@@ -66,8 +66,9 @@ class ParticleTransformation(BaseTransformation):
             'named_particles': named_particles,
             'all_particles': all_particles,
             'compute_kernel_matrix': compute_kernel_matrix,
-            'perturb_gradients': perturb_gradients,
+            'perturb_gradients': perturb_gradients
             }
+
         super().__init__(self.methods, custom_methods)
 
     def transform_parameter(self, param):
