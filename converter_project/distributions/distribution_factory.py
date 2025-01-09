@@ -1,6 +1,8 @@
 import inspect
-import torch
 from abc import abstractmethod
+
+import torch
+
 
 class DistributionFactory:
     @staticmethod
@@ -10,9 +12,7 @@ class DistributionFactory:
 
         # Dynamically create the combined class
         ConcreteDistribution = type(
-            class_name,
-            (family, role),  # Use the family as a mixin
-            {}
+            class_name, (family, role), {}  # Use the family as a mixin
         )
 
         # Use a clean, modular __init__ definition
@@ -21,13 +21,13 @@ class DistributionFactory:
             role_kwargs = {}
             family_kwargs = {}
             # Extract 'prior' specifically for the role initializer
-            if 'prior' in kwargs:
-                role_kwargs['prior'] = kwargs.pop('prior')
-            
+            if "prior" in kwargs:
+                role_kwargs["prior"] = kwargs.pop("prior")
+
             family_kwargs = kwargs
-            if 'shape' not in family_kwargs:
-                family_kwargs['shape'] = role_kwargs['prior'].shape
-                
+            if "shape" not in family_kwargs:
+                family_kwargs["shape"] = role_kwargs["prior"].shape
+
             # Remaining kwargs go to the family initializer
             # Call the __init__ methods of the base classes
             role.__init__(self, **role_kwargs)
@@ -38,5 +38,3 @@ class DistributionFactory:
 
         # Return the new combined class
         return ConcreteDistribution(**kwargs)
-
-
