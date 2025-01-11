@@ -51,8 +51,7 @@ det_model = SimpleModule()
 
 model, pred_history, kernel_history, total_history = SVGD(
     starting_model=det_model,
-    #    n_samples=n_particles,
-    n_particles=n_particles,
+    n_samples=n_particles,
     epochs=epochs,
     dataloader=dataloader,
     loss_fn=torch.nn.MSELoss(),
@@ -65,7 +64,6 @@ plot_with_uncertainty_from_dataloader(dataloader, x_truth, y_truth, model, n_par
 model, pred_history, kernel_history, total_history = BBVI(
     starting_model=det_model,
     n_samples=n_particles,
-    # n_particles=n_particles,
     epochs=epochs,
     dataloader=dataloader,
     loss_fn=torch.nn.MSELoss(),
