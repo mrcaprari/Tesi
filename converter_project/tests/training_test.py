@@ -12,12 +12,11 @@ output_shape = 1
 hidden_shape = 16
 hidden_shape_2 = 32
 hidden_shape_3 = 64
-batch_size = 64
-total_data = 64
+batch_size = 6
+total_data = 6
 n_particles = 50
 epochs = 1000
-learning_rate = 0.2
-kl_weight = 0.5
+learning_rate = 0.002
 
 dataloader, x_truth, y_truth = create_data_and_ground_truth(
     func=nonlinear_sinusoidal,
@@ -50,16 +49,28 @@ class SimpleModule(nn.Module):
 
 det_model = SimpleModule()
 
-model, pred_history, kernel_history, total_history = BBVI(
+model, pred_history, kernel_history, total_history = SVGD(
     starting_model=det_model,
-    n_samples=n_particles,
-    #    n_particles = n_particles,
+    #    n_samples=n_particles,
+    n_particles=n_particles,
     epochs=epochs,
     dataloader=dataloader,
     loss_fn=torch.nn.MSELoss(),
     optimizer_fn=torch.optim.Adam,
     learning_rate=learning_rate,
-    kl_weight=kl_weight,
+)
+
+plot_with_uncertainty_from_dataloader(dataloader, x_truth, y_truth, model, n_particles)
+
+model, pred_history, kernel_history, total_history = BBVI(
+    starting_model=det_model,
+    n_samples=n_particles,
+    # n_particles=n_particles,
+    epochs=epochs,
+    dataloader=dataloader,
+    loss_fn=torch.nn.MSELoss(),
+    optimizer_fn=torch.optim.Adam,
+    learning_rate=learning_rate,
 )
 
 plot_with_uncertainty_from_dataloader(dataloader, x_truth, y_truth, model, n_particles)

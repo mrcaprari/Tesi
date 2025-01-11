@@ -1,5 +1,7 @@
 from typing import Any
 
+import torch
+
 from converter_project.distributions import (
     DistributionFactory,
     Gaussian,
@@ -38,7 +40,7 @@ def to_gaussian(param: Any) -> RandomParameter:
     """
     param_prior = DistributionFactory.create(Gaussian, Prior, shape=param.shape)
     random_param = DistributionFactory.create(
-        Gaussian, RandomParameter, mu=param, prior=param_prior
+        Gaussian, RandomParameter, mu=param, prior=param_prior, std=torch.tensor(0.01)
     )
     return random_param
 

@@ -12,7 +12,7 @@ def ground_truth(func, precision=500):
 
 
 def create_data(func, input_shape, total_data):
-    input_data = torch.rand(total_data, input_shape) * 16 - 8
+    input_data = torch.rand(total_data, input_shape) * 6 - 3
     target_data = func(input_data)
     return input_data, target_data
 

@@ -14,9 +14,11 @@ def BBVI(
     loss_fn,
     optimizer_fn,
     learning_rate,
-    kl_weight,
     transform_list=[],
 ):
+    num_parameters = sum(
+        p.numel() for p in starting_model.parameters() if p.requires_grad
+    )
     model = ModuleConverter(GaussianTransformation()).convert(
         starting_model, transform_list
     )
@@ -29,8 +31,17 @@ def BBVI(
     for epoch in range(epochs):
         with tqdm(total=len(dataloader), desc=f"Epoch {epoch + 1}/{epochs}") as pbar:
             for x_batch, y_batch in dataloader:
+                batch_size = x_batch.shape[0]
+                kl_weight = batch_size / num_parameters
+
                 pred_loss, kl_loss, total_loss = BBVI_step(
-                    model, n_samples, x_batch, y_batch, loss_fn, optimizer, kl_weight
+                    model,
+                    n_samples,
+                    x_batch,
+                    y_batch,
+                    loss_fn,
+                    optimizer,
+                    kl_weight,
                 )
 
                 pred_history.append(pred_loss.detach().cpu().numpy())
@@ -48,7 +59,6 @@ def BBVI(
 
 
 def BBVI_step(model, n_samples, x, y, loss_fn, optimizer, kl_weight):
-
     optimizer.zero_grad()
     output = model(x, n_samples)
     pred_loss = torch.vmap(loss_fn, in_dims=(0, None))(output, y).mean()

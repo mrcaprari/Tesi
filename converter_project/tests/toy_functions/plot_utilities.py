@@ -48,6 +48,8 @@ def plot_with_uncertainty_from_dataloader(
         )
 
     # Labels and legend
+    plt.xlim([-3, 3])
+    plt.ylim([-20, 20])
     plt.xlabel("Input")
     plt.ylabel("Output")
     plt.legend()
