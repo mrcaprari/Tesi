@@ -1,17 +1,7 @@
 import torch
-from torch import nn
-from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from converter_project.converters import ModuleConverter
-from converter_project.distributions import Gaussian, Particle, Prior
-from converter_project.transformations import (
-    GaussianTransformation,
-    ParticleTransformation,
-)
-from converter_project.transformations.method_transformations import (
-    initialize_particles,
-)
+from converter_project.converters import ParticleConverter
 
 
 def SVGD(
@@ -24,10 +14,8 @@ def SVGD(
     learning_rate,
     transform_list=[],
 ):
-    model = ModuleConverter(ParticleTransformation()).convert(
-        starting_model, transform_list
-    )
-    initialize_particles(model, n_samples)
+    model = ParticleConverter().convert(starting_model, transform_list)
+    model.initialize_particles(n_samples)
 
     dataloader_iter = iter(dataloader)
     x_dummy, _ = next(dataloader_iter)  # Peek first batch

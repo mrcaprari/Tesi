@@ -1,9 +1,7 @@
 import torch
-from torch import nn
 from tqdm import tqdm
 
-from converter_project.converters import ModuleConverter
-from converter_project.transformations import GaussianTransformation
+from converter_project.converters import GaussianConverter
 
 
 def BBVI(
@@ -19,9 +17,7 @@ def BBVI(
     num_parameters = sum(
         p.numel() for p in starting_model.parameters() if p.requires_grad
     )
-    model = ModuleConverter(GaussianTransformation()).convert(
-        starting_model, transform_list
-    )
+    model = GaussianConverter().convert(starting_model, transform_list)
     optimizer = optimizer_fn(model.parameters(), lr=learning_rate)
 
     pred_history = []

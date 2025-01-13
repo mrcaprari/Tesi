@@ -1,173 +1,177 @@
-import copy
-from typing import Any, Dict, List, Optional
+import math
+from typing import Any, Generator, List, Optional, Tuple
 
 import torch
 import torch.fx
-from torch.fx import Graph, GraphModule, Node
+from torch.fx import GraphModule
 
-from converter_project.converters.preparatory_tracer import PreparatoryTracer
-from converter_project.transformations.transformations import Transformation
+from converter_project.converters.graphmodule_builders import (
+    GaussianGraphModuleBuilder,
+    ParticleGraphModuleBuilder,
+)
+from converter_project.converters.tracers import PreparatoryTracer
+from converter_project.converters.transformers import VmapTransformer
+from converter_project.distributions import Gaussian, Particle, Prior
 
 
-class ModuleConverter:
-    def __init__(self, transformation_logic: Transformation) -> None:
-        """
-        Initializes the ModuleConverter with the given transformation logic.
-
-        Args:
-            transformation_logic (Any): An object encapsulating transformation logic for nodes and parameters.
-        """
-        self.tracer = PreparatoryTracer
-        self.transformation_logic = transformation_logic
+class Converter:
+    def __init__(
+        self,
+        tracer=None,
+        graph_module_builder=None,
+        transformer=None,
+        toplevel_methods=None,
+    ):
+        self.tracer = tracer
+        self.graph_module_builder = graph_module_builder
+        self.transformer = transformer
+        self.toplevel_methods = toplevel_methods or {}
 
     def convert(
-        self, module: torch.nn.Module, parameter_list: Optional[List[Any]] = None
+        self, module: torch.nn.Module, parameter_list: Optional[List[Any]] = []
     ) -> GraphModule:
-        """
-        Converts a module into a transformed module with updated graph and methods.
-
-        Args:
-            module (torch.nn.Module): The module to convert.
-            parameter_list (Optional[List[Any]]): The parameters to use for conversion.
-
-        Returns:
-            GraphModule: The transformed module.
-        """
-        if parameter_list is None:
-            parameter_list = []
-
-        new_graph = self._transform_graph(module, parameter_list)
-        new_module = self._transform_module(module, parameter_list)
+        original_graph = self.tracer().trace(module, parameter_list)
+        new_module, new_graph = self.graph_module_builder(
+            original_graph
+        ).build_graph_module(module)
 
         transformed_module = GraphModule(new_module, new_graph)
-        transformed_module = self.transformation_logic.transform_forward(
-            transformed_module
+
+        final_module = self.transformer(transformed_module).transform()
+
+        final_module = self.add_methods(final_module)
+
+        return final_module
+
+    def add_methods(self, module: GraphModule) -> GraphModule:
+        for method_name, method_func in self.toplevel_methods.items():
+            # Dynamically add the method to the module
+            setattr(module, method_name, method_func.__get__(module, type(module)))
+        return module
+
+
+class ParticleConverter(Converter):
+    def __init__(
+        self,
+        tracer=PreparatoryTracer,
+        graph_module_builder=ParticleGraphModuleBuilder,
+        transformer=VmapTransformer,
+        toplevel_methods={},
+    ):
+        if toplevel_methods is None:
+            toplevel_methods = {}
+        # Add particle-related methods to `toplevel_methods`
+        toplevel_methods.update(
+            {
+                "named_particles": self.named_particles,
+                "all_particles": self.all_particles,
+                "compute_kernel_matrix": self.compute_kernel_matrix,
+                "perturb_gradients": self.perturb_gradients,
+                "initialize_particles": self.initialize_particles,
+            }
         )
-        transformed_module = self.transformation_logic.add_methods(transformed_module)
-
-        return transformed_module
-
-    def _transform_graph(
-        self, module: torch.nn.Module, parameter_list: List[Any]
-    ) -> Graph:
-        """
-        Transforms the graph of the given module based on transformation logic.
-
-        Args:
-            module (torch.nn.Module): The module to transform.
-            parameter_list (List[Any]): The parameters to transform with.
-
-        Returns:
-            Graph: The transformed graph.
-        """
-        preliminary_graph = self._preliminary_graph(module, parameter_list)
-        last_placeholder = self._last_placeholder(preliminary_graph)
-        return self._create_transformed_graph(preliminary_graph, last_placeholder)
-
-    def _transform_module(
-        self, module: torch.nn.Module, parameter_list: List[Any]
-    ) -> torch.nn.Module:
-        """
-        Transforms the module by modifying its parameters based on transformation logic.
+        super().__init__(tracer, graph_module_builder, transformer, toplevel_methods)
 
 
-        Args:
-            module (torch.nn.Module): The module to transform.
-            parameter_list (List[Any]): The parameters to transform with.
+class ParticleConverter(Converter):
+    def __init__(
+        self,
+        tracer=PreparatoryTracer,
+        graph_module_builder=ParticleGraphModuleBuilder,
+        transformer=VmapTransformer,
+        toplevel_methods=None,
+    ):
+        if toplevel_methods is None:
+            toplevel_methods = {}
+        # Add particle-related methods to `toplevel_methods`
+        toplevel_methods.update(
+            {
+                "named_particles": self._named_particles,
+                "all_particles": self._all_particles,
+                "compute_kernel_matrix": self._compute_kernel_matrix,
+                "perturb_gradients": self._perturb_gradients,
+                "initialize_particles": self._initialize_particles,
+            }
+        )
+        super().__init__(tracer, graph_module_builder, transformer, toplevel_methods)
 
-        Returns:
-            torch.nn.Module: The transformed module.
-        """
-        new_module = copy.deepcopy(module)
-        preliminary_graph = self._preliminary_graph(module, parameter_list)
+    @staticmethod
+    def _initialize_particles(module: torch.nn.Module, n_particles: int) -> None:
+        module.n_particles = n_particles
+        module.particle_modules = [
+            submodule
+            for submodule in module.modules()
+            if isinstance(submodule, Particle)
+        ]
 
-        for node in preliminary_graph.nodes:
-            if node.meta.get("transform", False) and node.op == "get_attr":
-                self._transform_parameter(new_module, node.target)
-
-        return new_module
-
-    def _create_transformed_graph(
-        self, preliminary_graph: Graph, last_placeholder: Optional[Node]
-    ) -> Graph:
-        """
-        Creates a new graph by applying transformation logic to nodes of the preliminary graph.
-
-        Args:
-            preliminary_graph (Graph): The original graph.
-            last_placeholder (Optional[Node]): The last placeholder node in the graph.
-
-        Returns:
-            Graph: The transformed graph.
-        """
-        with preliminary_graph.inserting_after(last_placeholder):
-            n_samples_node = preliminary_graph.placeholder(name="n_samples")
-            new_graph = Graph()
-            val_map: Dict[Node, Node] = {}
-
-            for node in preliminary_graph.nodes:
-                new_node = new_graph.node_copy(node, lambda n: val_map[n])
-
-                if node.meta.get("transform", False):
-                    new_node = self.transformation_logic.transform_node(
-                        new_node, node, n_samples_node, val_map
+    @staticmethod
+    def _named_particles(
+        module: torch.nn.Module,
+    ) -> Generator[Tuple[str, torch.Tensor], None, None]:
+        for name, submodule in module.named_modules():
+            if isinstance(submodule, Particle):
+                yield name, submodule.particles
+            else:
+                for param_name, param in submodule.named_parameters(recurse=False):
+                    expanded_param = param.unsqueeze(0).expand(
+                        module.n_particles, *param.size()
                     )
+                    yield f"{name}.{param_name}", expanded_param
 
-                val_map[node] = new_node
-
-            return new_graph
-
-    def _transform_parameter(self, module: torch.nn.Module, name: str) -> bool:
-        """
-        Transforms a parameter of the module by applying the transformation logic.
-
-        Args:
-            module (torch.nn.Module): The module containing the parameter.
-            name (str): The name of the parameter.
-
-        Returns:
-            bool: True if the transformation was successful.
-        """
-        attrs = name.split(".")
-        *path, param_name = attrs
-        submodule = module
-
-        for attr in path:
-            submodule = getattr(submodule, attr)
-
-        param = getattr(submodule, param_name)
-        delattr(submodule, param_name)
-
-        new_param = self.transformation_logic.transform_parameter(param)
-        submodule.register_module(param_name, new_param)
-
-        return True
-
-    def _last_placeholder(self, graph: Graph) -> Optional[Node]:
-        """
-        Finds the last placeholder node in the given graph.
-
-        Args:
-            graph (Graph): The graph to search.
-
-        Returns:
-            Optional[Node]: The last placeholder node if found, else None.
-        """
-        return next(
-            (node for node in reversed(graph.nodes) if node.op == "placeholder"), None
+    @staticmethod
+    def _all_particles(module: torch.nn.Module) -> torch.Tensor:
+        return torch.cat(
+            [
+                torch.flatten(tensor, start_dim=1)
+                for _, tensor in module.named_particles()
+            ],
+            dim=1,
         )
 
-    def _preliminary_graph(
-        self, module: torch.nn.Module, parameter_list: List[str]
-    ) -> Graph:
-        """
-        Creates a preliminary graph by tracing the given module.
+    @staticmethod
+    def _compute_kernel_matrix(module: torch.nn.Module) -> None:
+        particles = module.all_particles()  # Shape: [n_particles, n_params]
+        pairwise_sq_dists = torch.cdist(particles, particles, p=2) ** 2
+        median_squared_dist = pairwise_sq_dists.median()
+        lengthscale = torch.sqrt(
+            0.5 * median_squared_dist / math.log(module.n_particles)
+        )
+        module.kernel_matrix = torch.exp(-pairwise_sq_dists / (2 * lengthscale**2))
 
-        Args:
-            module (torch.nn.Module): The module to trace.
-            parameter_list (List[str]): The list of fully qualified parameters to be transformed
+    @staticmethod
+    def _perturb_gradients(module: torch.nn.Module) -> None:
+        module.compute_kernel_matrix()
+        for particle in module.particle_modules:
+            particle.perturb_gradients(module.kernel_matrix)
 
-        Returns:
-            Graph: The traced graph.
-        """
-        return self.tracer(parameter_list).trace(module)
+
+class GaussianConverter(Converter):
+    def __init__(
+        self,
+        tracer=PreparatoryTracer,
+        graph_module_builder=GaussianGraphModuleBuilder,
+        transformer=VmapTransformer,
+        toplevel_methods={},
+    ):
+        toplevel_methods.update(
+            {
+                "kl_divergence": self._kl_divergence,
+            }
+        )
+        super().__init__(tracer, graph_module_builder, transformer, toplevel_methods)
+
+    @staticmethod
+    def _kl_divergence(module: torch.nn.Module) -> torch.Tensor:
+        kl_div = 0
+        for name, submodule in module.named_modules():
+            if isinstance(submodule, Gaussian) and not isinstance(submodule, Prior):
+                var_ratio = (submodule.std / submodule.prior.std) ** 2
+                current_kl = 0.5 * (
+                    torch.log(submodule.prior.std**2 / submodule.std**2)
+                    + var_ratio
+                    + ((submodule.mu - submodule.prior.mu) ** 2)
+                    / (submodule.prior.std**2)
+                    - 1
+                )
+                kl_div += current_kl.sum()
+        return kl_div

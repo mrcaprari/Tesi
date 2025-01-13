@@ -1,6 +1,5 @@
 import torch
 from torch import nn
-from torch.utils.data import DataLoader, TensorDataset
 
 from converter_project.algorithms.bbvi import BBVI
 from converter_project.algorithms.svgd import SVGD
