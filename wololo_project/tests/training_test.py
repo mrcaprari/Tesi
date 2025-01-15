@@ -1,21 +1,21 @@
 import torch
 from torch import nn
 
-from converter_project.algorithms.bbvi import BBVI
-from converter_project.algorithms.svgd import SVGD
-from converter_project.tests.toy_functions.plot_utilities import *
-from converter_project.tests.toy_functions.toy_functions import *
+from ..algorithms.bbvi import BBVI
+from ..algorithms.svgd import SVGD
+from ..tests.toy_functions.plot_utilities import *
+from ..tests.toy_functions.toy_functions import *
 
 input_shape = 1
 output_shape = 1
 hidden_shape = 16
 hidden_shape_2 = 32
 hidden_shape_3 = 64
-batch_size = 6
-total_data = 6
+batch_size = 64
+total_data = 16
 n_particles = 50
 epochs = 1000
-learning_rate = 0.002
+learning_rate = 0.01
 
 dataloader, x_truth, y_truth = create_data_and_ground_truth(
     func=nonlinear_sinusoidal,

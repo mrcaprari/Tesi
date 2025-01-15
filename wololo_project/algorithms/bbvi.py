@@ -1,7 +1,7 @@
 import torch
 from tqdm import tqdm
 
-from converter_project.converters import GaussianConverter
+from ..converters import GaussianConverter
 
 
 def BBVI(
