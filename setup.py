@@ -9,7 +9,7 @@ with open("requirements.txt", "r", encoding="utf-8") as fr:
 
 setup(
     name="wololo",
-    version="0.1.0",
+    version="0.1.1",
     author="mrcaprari",
     description="A PyTorch Framework for Probabilistic Model Conversion",
     packages=find_packages(),
