@@ -1,2 +1,10 @@
 __pycache__/
 venv/
+tests/
+wololo.egg-info/
+dist/
+build/
+wololo_project/
+*.pyc
+wololo/__pycache__/
+wololo/algorithms/sensitivity
