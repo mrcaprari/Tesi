@@ -14,8 +14,8 @@ hidden_shape_2 = 64
 hidden_shape_3 = 32
 batch_size = 64
 total_data = 32
-n_samples = 500
-epochs = 2000
+n_samples = 50
+epochs = 500
 learning_rate = 0.005
 
 
