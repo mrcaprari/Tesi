@@ -13,10 +13,7 @@ import matplotlib
 # Set appropriate Matplotlib backend based on the environment
 if IS_COLAB:
     # Use the inline backend in Colab
-    try:
-        matplotlib.use("module://matplotlib_inline.backend_inline")
-    except ImportError:
-        print("Warning: Inline backend for Colab not found. Using default backend.")
+    pass
 else:
     # Use interactive backend on local machines with display
     try:
