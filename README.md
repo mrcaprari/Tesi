@@ -34,7 +34,7 @@ Wololo provides two main conversion routines:
 For BBVI, the stochastic parameter logic needs to be defined inside a torch.nn.Module. For example:
 ```python 
 class GaussianParameter(torch.nn.Module):
-    def __init__(self, parameter):
+    def __init__(self, parameter: torch.nn.Parameter):
         super().__init__()
         self.mu = torch.nn.Parameter(parameter)
         self.rho = torch.nn.Parameter(
