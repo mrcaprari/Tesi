@@ -31,13 +31,13 @@ python test.py
 ```
 The expected output is
 ```bash
-Epoch 50: Avg Prediction Loss = 4.0795, Avg Kernel Loss = 1.3332                                                                                                    
-Epoch 100: Avg Prediction Loss = 0.9800, Avg Kernel Loss = 1.3317                                                                                                   
+Epoch 50: Avg Prediction Loss = 4.7233, Avg Kernel Loss = 1.7304                                                                                                    
+Epoch 100: Avg Prediction Loss = 2.3270, Avg Kernel Loss = 1.7054                                                                                               
 .
 .
 .                                                                                              
-Epoch 650: Avg Prediction Loss = 0.1974, Avg Kernel Loss = 1.3261                                                                                                   
-Epoch 700: Avg Prediction Loss = 0.1685, Avg Kernel Loss = 1.3265
+Epoch 550: Avg Prediction Loss = 0.5184, Avg Kernel Loss = 1.4832                                                                                                   
+Epoch 600: Avg Prediction Loss = 0.3481, Avg Kernel Loss = 1.4749 
 ```
 ![Figure 1](expected_output.png)
 
