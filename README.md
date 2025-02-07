@@ -17,11 +17,21 @@ Wololo can be installed via PyPI:
 ```bash
 pip install wololo
 ```
+
+## Test it 
 To run the test smoothly, install with optional dependencies:
 ```bash
 pip install wololo[test]
 ```
-This will also install `matplotlib`, `numpy` and `tqdm`.
+This will also install `matplotlib`, `numpy` and `tqdm`. To run it, clone the repository and run the test:
+```bash
+git clone https://github.com/mrcaprari/wololo_project
+cd wololo
+python test.py
+```
+
+
+
 
 ## Dependencies
 Wololo requires:
