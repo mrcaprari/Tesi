@@ -39,7 +39,7 @@ Epoch 100: Avg Prediction Loss = 0.9800, Avg Kernel Loss = 1.3317
 Epoch 650: Avg Prediction Loss = 0.1974, Avg Kernel Loss = 1.3261                                                                                                   
 Epoch 700: Avg Prediction Loss = 0.1685, Avg Kernel Loss = 1.3265
 ```
-![Figure 1](Figure_1.png)
+![Figure 1](expected_output.png)
 
 
 
