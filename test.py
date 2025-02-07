@@ -1,26 +1,5 @@
 import argparse
 
-# Manage running tests from Google Colab
-try:
-    import google.colab
-
-    IS_COLAB = True
-except ImportError:
-    IS_COLAB = False
-
-import matplotlib
-
-# Set appropriate Matplotlib backend based on the environment
-if IS_COLAB:
-    # Use the inline backend in Colab
-    pass
-else:
-    # Use interactive backend on local machines with display
-    try:
-        matplotlib.use("tkagg")
-    except ImportError:
-        print("Warning: TkAgg backend not found. Using default backend.")
-
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -107,7 +86,7 @@ def train_SVGD(
 
     # Convert to non-parametric BNN suitable for SVGD
     model = SVGDConverter().convert(
-        SimpleModule(hidden_shape, hidden_shape_2), particle_config={"prior_std": 0.1}
+        SimpleModule(hidden_shape, hidden_shape_2), particle_config={"prior_std": 1.0}
     )
     dummy_input = torch.randn(1, 1)
     model(dummy_input, n_samples)
@@ -271,7 +250,7 @@ def main():
         description="Test Wololo Bayesian Neural Network on a toy non-linear function."
     )
     parser.add_argument(
-        "--epochs", type=int, default=700, help="Number of training epochs."
+        "--epochs", type=int, default=600, help="Number of training epochs."
     )
     parser.add_argument(
         "--learning_rate", type=float, default=0.005, help="Learning rate."
