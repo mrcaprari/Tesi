@@ -6,6 +6,15 @@ import torch.fx
 from torch.fx import GraphModule
 
 from .adapters import Adapter
+from .algorithms import (
+    ParticleParameter,
+    all_particles,
+    bbvi_initialize,
+    bbvi_kl_divergence,
+    compute_kernel_matrix,
+    perturb_gradients,
+    svgd_initialize,
+)
 from .tracers import PreparatoryTracer
 from .transformers import VmapTransformer
 
@@ -83,17 +92,25 @@ class Converter:
             - For convolutional architectures, customize the `transformer` to accommodate for
               different transformation approaches.
         """
+        # Default parameter list to be empty if not specified
+        # This will transform every parameter in the module
         if parameter_list is None:
             parameter_list = []
 
-        original_graph = self.tracer().trace(module, parameter_list)
+        # Trace and prepare the computation graph
+        original_graph = self.tracer(parameter_list).trace(module)
+
+        # Substitute parameters and adapt the graph accordingly
         new_module, new_graph = self.adapter(original_graph).adapt_module(
             module, stochastic_parameter, **kwargs
         )
 
+        # Transforming the forward method to account for additional parameter dimensions
+        # This is necessary to handle batched computations for stochastic parameters
         transformed_module = GraphModule(new_module, new_graph)
         final_module = self.transformer(transformed_module).transform()
 
+        # Finalize transformation adding top-level methods
         self.add_methods(final_module, stochastic_parameter)
         return final_module
 
@@ -104,17 +121,24 @@ class Converter:
         Args:
             module (GraphModule): The module to which methods will be added.
         """
-        module.stochastic_parameters = [
-            (name, module)
-            for name, module in module.named_modules()
-            if isinstance(module, stochastic_parameter)
-        ]
 
         for method_name, method_function in self.toplevel_methods.items():
             setattr(module, method_name, method_function.__get__(module, type(module)))
 
 
 class BBVIConverter(Converter):
+    """
+    Specialized Converter for Black-Box Variational Inference (BBVI).
+
+    Extends the base Converter by ensuring that the provided stochastic parameter
+    includes a `kl_divergence` method. It also adds a top-level `kl_divergence`
+    method to the transformed module and initializes BBVI-specific attributes
+    via the `bbvi_initialize` function.
+
+    Attributes:
+        (Inherited from Converter)
+    """
+
     def __init__(
         self,
         tracer: torch.fx.Tracer = None,
@@ -122,9 +146,26 @@ class BBVIConverter(Converter):
         transformer: torch.fx.Transformer = None,
         toplevel_methods: Dict = None,
     ) -> None:
+        """
+        Initializes the BBVIConverter with optional components and automatically
+        adds the `kl_divergence` method to the top-level methods.
+
+        Args:
+            tracer (torch.fx.Tracer, optional): Tracer for graph preparation.
+                Defaults to `PreparatoryTracer`.
+            adapter (Adapter, optional): Handles stochastic adaptation of parameters
+                and nodes. Defaults to `Adapter`.
+            transformer (torch.fx.Transformer, optional): Transforms the forward method.
+                Defaults to `VmapTransformer`.
+            toplevel_methods (Dict, optional): Additional methods to add to the transformed module.
+        """
 
         toplevel_methods = toplevel_methods or {}
-        toplevel_methods.update({"kl_divergence": self._kl_divergence})
+
+        # Add KL divergence method to toplevel module methods
+        toplevel_methods.update({"kl_divergence": bbvi_kl_divergence})
+
+        # Call parent initializer
         super().__init__(tracer, adapter, transformer, toplevel_methods)
 
     def convert(
@@ -134,67 +175,63 @@ class BBVIConverter(Converter):
         parameter_list: Optional[list] = None,
         **kwargs,
     ) -> GraphModule:
+        """
+        Converts a deterministic module into a stochastic module suited for BBVI.
+
+        The conversion process includes:
+          - Tracing the module's computation graph.
+          - Replacing parameters with stochastic ones (which must implement a `kl_divergence` method).
+          - Transforming the forward method to handle batched parameter dimensions.
+          - Initializing BBVI-specific attributes on the resulting module.
+
+        Args:
+            module (torch.nn.Module): The original deterministic module.
+            stochastic_parameter (type[torch.nn.Module]): The class used for stochastic parameters.
+                It must provide a `kl_divergence` method.
+            parameter_list (Optional[List[str]], optional): Names of parameters to replace stochastically.
+                Defaults to an empty list (i.e., transform all parameters).
+            **kwargs: Additional keyword arguments for the conversion process.
+
+        Returns:
+            GraphModule: The transformed module with BBVI-specific enhancements.
+
+        Raises:
+            ValueError: If the provided stochastic_parameter does not implement `kl_divergence`.
+        """
 
         if not hasattr(stochastic_parameter, "kl_divergence"):
             raise ValueError(
                 "stochastic_parameter must have a kl_divergence method for BBVI"
             )
 
-        return super().convert(module, stochastic_parameter, parameter_list, **kwargs)
-
-    def _kl_divergence(self) -> torch.Tensor:
-        kl_div = 0
-        for name, stochastic_parameter in self.stochastic_parameters:
-            kl_div += stochastic_parameter.kl_divergence()
-        return kl_div
-
-
-class ParticleParameter(torch.nn.modules.lazy.LazyModuleMixin, torch.nn.Module):
-    def __init__(self, parameter, particle_config={"prior_std": 1.0}):
-        super().__init__()
-        self.particle_config = particle_config
-
-        if "prior" in self.particle_config:
-            self.prior = self.particle_cofig["prior"]
-        else:
-            self.prior = torch.distributions.Normal(
-                loc=parameter,
-                scale=torch.full(parameter.size(), self.particle_config["prior_std"]),
-            )
-        self.register_parameter("particles", torch.nn.UninitializedParameter())
-
-    def initialize_parameters(self, n_samples: int) -> None:
-
-        if self.has_uninitialized_params():
-            self.particles.materialize((n_samples, *self.prior.loc.shape))
-
-        with torch.no_grad():
-            self.particles = torch.nn.Parameter(
-                self.prior.rsample(
-                    (n_samples,),
-                )
-            )
-
-        suffix = "".join(
-            [chr(ord("k") + i) for i in range(self.particles.ndim - 1)]
-        )  # Dynamically compute suffix
-        self.einsum_equation = f"ij,j{suffix}->i{suffix}"  # Precompute einsum equation
-
-    @property
-    def flattened_particles(self) -> torch.Tensor:
-        return torch.flatten(self.particles, start_dim=1)
-
-    def perturb_gradients(self, kernel_matrix: torch.Tensor) -> None:
-        # Direct einsum operation using the precomputed einsum equation
-        self.particles.grad = torch.einsum(
-            self.einsum_equation, kernel_matrix, self.particles.grad
+        # Call parent convert method
+        BBVI_model = super().convert(
+            module, stochastic_parameter, parameter_list, **kwargs
         )
 
-    def forward(self, n_samples):
-        return self.particles
+        # Initialize BBVI-specific attributes
+        bbvi_initialize(BBVI_model, stochastic_parameter)
+
+        return BBVI_model
 
 
 class SVGDConverter(Converter):
+    """
+    Specialized Converter for Stein Variational Gradient Descent (SVGD).
+
+    Extends the base Converter by automatically adding SVGD-specific methods
+    as top-level methods. These include:
+      - `all_particles`: Concatenates particles across all stochastic parameters.
+      - `compute_kernel_matrix`: Computes the RBF kernel matrix.
+      - `perturb_gradients`: Perturbs particle gradients using the computed kernel matrix.
+
+    After conversion, the module is further initialized with SVGD-specific attributes via
+    the `svgd_initialize` function.
+
+    Attributes:
+        (Inherited from Converter)
+    """
+
     def __init__(
         self,
         tracer: torch.fx.Tracer = None,
@@ -202,14 +239,27 @@ class SVGDConverter(Converter):
         transformer: torch.fx.Transformer = None,
         toplevel_methods: Dict = None,
     ) -> None:
+        """
+        Initializes the SVGDConverter with optional components and automatically
+        adds SVGD-specific methods (all_particles, compute_kernel_matrix, perturb_gradients)
+        to the top-level methods.
+
+        Args:
+            tracer (torch.fx.Tracer, optional): Tracer for graph preparation.
+                Defaults to `PreparatoryTracer`.
+            adapter (Adapter, optional): Handles stochastic adaptation of parameters.
+                Defaults to `Adapter`.
+            transformer (torch.fx.Transformer, optional): Transforms the forward method.
+                Defaults to `VmapTransformer`.
+            toplevel_methods (Dict, optional): Additional methods to add to the transformed module.
+        """
 
         toplevel_methods = toplevel_methods or {}
         toplevel_methods.update(
             {
-                "named_particles": self.named_particles,
-                "all_particles": self.all_particles,
-                "compute_kernel_matrix": self.compute_kernel_matrix,
-                "perturb_gradients": self.perturb_gradients,
+                "all_particles": all_particles,
+                "compute_kernel_matrix": compute_kernel_matrix,
+                "perturb_gradients": perturb_gradients,
             }
         )
         super().__init__(tracer, adapter, transformer, toplevel_methods)
@@ -221,70 +271,31 @@ class SVGDConverter(Converter):
         parameter_list: Optional[list] = None,
         **kwargs,
     ) -> GraphModule:
+        """
+        Converts a deterministic module into a stochastic module tailored for SVGD.
 
+        The conversion process includes:
+          - Tracing the module's computation graph.
+          - Replacing parameters with stochastic ones (default is ParticleParameter).
+          - Transforming the forward method to support batched parameter dimensions.
+          - Initializing SVGD-specific attributes (e.g., registering particle submodules).
+
+        Args:
+            module (torch.nn.Module): The original deterministic module.
+            stochastic_parameter (type[torch.nn.Module], optional): The class representing stochastic parameters.
+                Defaults to ParticleParameter.
+            parameter_list (Optional[List[str]], optional): List of parameter names to be transformed.
+            **kwargs: Additional keyword arguments for the conversion process.
+
+        Returns:
+            GraphModule: The transformed module with SVGD-specific enhancements.
+        """
+        # Call parent convert method
         transformed_module = super().convert(
             module, stochastic_parameter, parameter_list, **kwargs
         )
 
-        transformed_module.particle_modules = [
-            submodule
-            for submodule in transformed_module.modules()
-            if isinstance(submodule, ParticleParameter)
-        ]
+        # Initialize SVGD-specific attributes
+        svgd_initialize(transformed_module)
+
         return transformed_module
-
-    def named_particles(self):
-        """
-        Yield named particles for all `ParticleParam` submodules.
-
-        Yields:
-            Tuple[str, torch.Tensor]: Name and tensor of particles.
-        """
-        for name, submodule in self.named_modules():
-            if isinstance(submodule, ParticleParameter):
-                yield name, submodule.particles
-            else:
-                for param_name, param in submodule.named_parameters(recurse=False):
-                    expanded_param = param.unsqueeze(0).expand(
-                        self.n_particles, *param.size()
-                    )
-                    yield f"{name}.{param_name}", expanded_param
-
-    def all_particles(self) -> torch.Tensor:
-        """
-        Concatenate all particles into a single tensor.
-
-        Returns:
-            torch.Tensor: Flattened and concatenated particles from all submodules.
-        """
-        return torch.cat(
-            [
-                torch.flatten(tensor, start_dim=1)
-                for _, tensor in self.named_particles()
-            ],
-            dim=1,
-        )
-
-    def compute_kernel_matrix(self) -> None:
-        """
-        Computes the RBF kernel matrix for the particles in the model.
-        """
-        particles = self.all_particles()
-        n_particles = particles.shape[0]
-        pairwise_sq_dists = torch.cdist(particles, particles, p=2) ** 2
-        median_squared_dist = pairwise_sq_dists.median()
-
-        lengthscale = torch.sqrt(
-            0.5
-            * median_squared_dist
-            / (torch.log(torch.tensor(n_particles, dtype=particles.dtype)) + 1e-8)
-        )
-        self.kernel_matrix = torch.exp(-pairwise_sq_dists / (2 * lengthscale**2))
-
-    def perturb_gradients(self) -> None:
-        """
-        Adjust gradients of all particles in the model using the kernel matrix.
-        """
-        self.compute_kernel_matrix()
-        for particle in self.particle_modules:
-            particle.perturb_gradients(self.kernel_matrix)

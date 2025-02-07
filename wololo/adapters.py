@@ -71,11 +71,11 @@ class Adapter:
         Returns:
             torch.nn.Module: A stochastic module initialized with the parameter.
         """
-
         if not issubclass(stochastic_module_cls, torch.nn.Module):
             raise TypeError(
                 f"{stochastic_module_cls} must be a subclass of torch.nn.Module."
             )
+
         return stochastic_module_cls(parameter, **kwargs)
 
     def adapt_module(
@@ -96,21 +96,33 @@ class Adapter:
             tuple[torch.nn.Module, Graph]: The adapted module and the transformed graph.
         """
         new_module = copy.deepcopy(module)
+
+        # Add a placeholder for the number of samples during forward pass
         with self.prepared_graph.inserting_after(self.last_placeholder):
             n_samples_node = self.prepared_graph.placeholder(name="n_samples")
 
+        # Prepare a new graph and dictionary to map old nodes to new nodes
         new_graph = Graph()
         val_map: Dict[Node, Node] = {}
 
+        # Create new graph nodes by adapting the old nodes
         for node in self.prepared_graph.nodes:
+
+            # Initialize new nodes with same attributes as old nodes
             new_node = new_graph.node_copy(node, lambda n: val_map[n])
+
+            # Apply transformation logic to nodes marked for transformation
             if node.meta.get("transform", False):
+                # Adapt the node attributes and update the value map
                 new_node = self.adapt_node(new_node, node, n_samples_node, val_map)
+
+                # Substitute parameter instance with stochastic module
                 if node.op == "get_attr":
                     self._adapt_parameter(
                         new_module, stochastic_module_cls, node.target, **kwargs
                     )
-
+            # Update the value map with the new node
+            # This ensures new nodes can reference each other
             val_map[node] = new_node
 
         return new_module, new_graph
@@ -133,17 +145,23 @@ class Adapter:
         Returns:
             bool: True if the parameter was successfully replaced.
         """
+        # Split parameter name and module path
         attrs = name.split(".")
         *path, param_name = attrs
         submodule = module
 
+        # Traverse module hierarchy to find submodule containing the parameter
         for attr in path:
             submodule = getattr(submodule, attr)
 
+        # Retrieve parameter from submodule
         param = getattr(submodule, param_name)
+        # Then remove it
         delattr(submodule, param_name)
 
+        # Pass it to the stochastic module constructor
         new_param = self.adapt_parameter(param, stochastic_module_cls, **kwargs)
+        # And register the new module in corresponding submodule (where the parameter was)
         submodule.register_module(param_name, new_param)
 
         return True

@@ -14,8 +14,10 @@ class PreparatoryTracer(torch.fx.Tracer):
         This tracer overrides the default behavior of `torch.fx.Tracer` to ensure
         that no module is treated as a leaf module, enabling fine-grained control during
         subsequent transformation steps.
-        It also adds "transform" metadata to nodes corresponding to parameters in the transform_list,
-        or to nodes corresponding to functions having arguments in the transform_list.
+        It also tags nodes corresponding to parameters in the transform_list (and nodes whose arguments
+        have already been tagged) with "transform" metadata to dialogue with Adapter and Transformer.
+        This tagging "cascade" ensures that only the necessary nodes are transformed, be them
+        parameters, modules or functions.
 
         Attributes:
             transform_list (Optional[List[str]]): The list of parameters to be transformed.
@@ -30,7 +32,7 @@ class PreparatoryTracer(torch.fx.Tracer):
     ) -> bool:
         """
         Override to ensure no module is treated as a leaf module, enabling fine-grained control during
-        subsequent transformation steps.
+        subsequent transformation steps. This is necessary to avoid hiding nodes that should be transformed.
 
         Args:
             module (torch.nn.Module): The module being traced.
@@ -51,11 +53,11 @@ class PreparatoryTracer(torch.fx.Tracer):
         type_expr: Optional[Any] = None,
     ) -> torch.fx.Node:
         """
-        Creates a new node in the computation graph and annotates it with "transform" metadata.
+        Creates a new node in the computation graph and tags it with metadata.
         This extends the base `create_node` functionality by adding "transform" metadata
         to each node. Nodes of type "get_attr" are marked based on whether their target should
-        be transformed, while other nodes are marked if any of their arguments are marked
-        for transformation.
+        be transformed, while other nodes are marked if any of their arguments have already
+        been marked for transformation.
 
         Args:
             kind (str): The type of the node (e.g., call_function, call_module).
@@ -79,10 +81,9 @@ class PreparatoryTracer(torch.fx.Tracer):
     def _should_transform_get_attr(self, target: str) -> bool:
         """
         Determines if a 'get_attr' node should be transformed.
-
         A node should be transformed if it matches one of the prefixes in
-        the `transform_list`. If `transform_list` is None, all targets are
-        considered transformable.
+        the `transform_list`.
+        If `transform_list` is None, all targets are considered transformable.
 
         Args:
             target (str): The target attribute name.
@@ -96,8 +97,10 @@ class PreparatoryTracer(torch.fx.Tracer):
 
     def _has_transformable_args(self, args: Any) -> bool:
         """
-        Examines the "transform" metadata of the arguments to determine
-        if the node should be marked for transformation.
+        Determines if any argument of a node has already been tagged for transformation.
+        Any function or module that takes such parameters as arguments will also be tagged
+        for transformation, since it will need its forward method modified to correctly
+        handle the new batched dimensions introduces by the stochastic module.
 
         Args:
             args (Any): The current node arguments to check.

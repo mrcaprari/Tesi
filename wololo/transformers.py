@@ -42,23 +42,19 @@ class VmapTransformer(torch.fx.Transformer):
         return wrapped
 
     def run_node(self, node: torch.fx.Node) -> Any:
-        """
-        Processes a node in the computation graph during the transformation process.
-
-        For function call nodes, this method determines which input dimensions need
-        vectorization and updates the 'in_dims' attribute accordingly.
-
-        Args:
-            node (torch.fx.Node): The node to process.
-
-        Returns:
-            Any: The result of running the node.
-        """
         if node.op == "call_function":
+            # Figure out which args are "transform=True"
             current_in_dims = tuple(
                 0 if arg.meta.get("transform", False) else None for arg in node.args
             )
-            self.in_dims = current_in_dims
+
+            # If *all* of those in_dims are None, that means there is no tensor to vmap
+            if not any(dim == 0 for dim in current_in_dims):
+                # This means there's no argument we should batch
+                self.in_dims = None
+            else:
+                # We do have at least one transformable argument
+                self.in_dims = current_in_dims
         return super().run_node(node)
 
     def call_function(self, target: Callable, args: Any, kwargs: Dict[str, Any]) -> Any:
@@ -80,4 +76,5 @@ class VmapTransformer(torch.fx.Transformer):
         if self.in_dims is not None:
             vmap_fn = self.vmap_wrapper(target, self.in_dims)
             return super().call_function(vmap_fn, args, kwargs)
+
         return super().call_function(target, args, kwargs)
