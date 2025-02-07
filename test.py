@@ -1,5 +1,29 @@
 import argparse
 
+# Manage running tests from Google Colab
+try:
+    import google.colab
+
+    IS_COLAB = True
+except ImportError:
+    IS_COLAB = False
+
+import matplotlib
+
+# Set appropriate Matplotlib backend based on the environment
+if IS_COLAB:
+    # Use the inline backend in Colab
+    try:
+        matplotlib.use("module://matplotlib_inline.backend_inline")
+    except ImportError:
+        print("Warning: Inline backend for Colab not found. Using default backend.")
+else:
+    # Use interactive backend on local machines with display
+    try:
+        matplotlib.use("tkagg")
+    except ImportError:
+        print("Warning: TkAgg backend not found. Using default backend.")
+
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
