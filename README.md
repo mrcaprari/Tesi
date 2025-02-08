@@ -99,7 +99,7 @@ SVGD_model(dummy_input, n_samples)
 ```
 The model is now ready for training and inference with probabilistic predictions.
 ## Training and Inference
-The NBBs will output probabilistic predictions. This needs to be taken into account when performing inference. We suggest using `torch.vmap` to vectorize the computation of the loss:
+The BNNs will output probabilistic predictions. This needs to be taken into account when performing inference. We suggest using `torch.vmap` to vectorize the computation of the loss:
 ```python
 probabilistic_preds = Wololo_model(input, n_samples) # Shape: [n_samples, batch_size, output_dim]
 criterion = torch.nn.MSELoss()
