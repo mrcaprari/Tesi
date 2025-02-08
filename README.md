@@ -44,7 +44,7 @@ You can also choose between the two different posterior approximation algorithms
 - `--algorithms`: choose between `svgd` and `bbvi`
 - `--n_samples`: number of Monte Carlo realizations
 - `--num_train`: number of train examples
-- `--hidden_shape`, `--hidden_shape_2`: hydden layer sizes for the network (hidden_shape 16, hidden_shape_2)
+- `--hidden_shape`, `--hidden_shape_2`: hidden layer sizes for the network (hidden_shape 16, hidden_shape_2)
 - `learning_rate`, `batch_size`, `epochs`: training hyperparameters
 
 ## Dependencies
