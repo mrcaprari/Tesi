@@ -1,12 +1,12 @@
 # Wololo: A PyTorch Framework for Probabilistic Model Conversion
 
-Wololo is a lightweight framework that transforms deterministic PyTorch models into Bayesian models. Using state-of-the-art techniques like Black-Box Variational Inference (BBVI) and Stein Variational Gradient Descent (SVGD), Wololo replaces deterministic parameters with stochastic counterparts.
+Wololo is a lightweight framework that transforms deterministic PyTorch models into Bayesian Neural Networks (BNNs) by replacing their deterministic parameters with user-specified stochastic ones. It allows easy implementation of state-of-the-art posterior approximation algorithms: Black-Box Variational Inference (BBVI) and Stein Variational Gradient Descent (SVGD), 
 
 ## Features
 
-- **Model Conversion:** Convert any fully connected PyTorch neural network into a Bayesian Neural Network (BNN) using either BBVI or SVGD.
-- **BBVI and SVGD Algorithms:** Choose between BBVI (parametric) and SVGD (non-parametric) conversion methods via a simple command-line argument.
-- **PyTorch Integration:** Designed to integrate with existing PyTorch models: simply pass your model to the converter and start experimenting with Bayesian inference
+- **Model Conversion:** Convert any **fully connected** PyTorch neural network into a BNN.
+- **BBVI and SVGD Algorithms:** Choose between BBVI (parametric) and SVGD (non-parametric) variational posterior approximation.
+- **PyTorch Integration:** Designed to integrate with existing PyTorch models: simply pass your model to the converter and start experimenting with Bayesian inference.
 - **Customizable Stochastic Parameters:** Define your own stochastic parameter logic for BBVI or use built-in particle configurations for SVGD.
 - **Hybrid Bayesian Models:** Mix deterministic and stochastic layers within the same model.
 
@@ -29,7 +29,7 @@ git clone https://github.com/mrcaprari/wololo_project
 cd wololo
 python test.py
 ```
-The expected output is
+This test script (test.py) demostrates how to convert a feed-forward network to its Bayesian counterpart. The BNN is then used to approximate a toy deterministic function.  The expected output is
 ```bash
 Epoch 50: Avg Prediction Loss = 4.7233, Avg Kernel Loss = 1.7304                                                                                                    
 Epoch 100: Avg Prediction Loss = 2.3270, Avg Kernel Loss = 1.7054                                                                                               
@@ -40,8 +40,12 @@ Epoch 550: Avg Prediction Loss = 0.5184, Avg Kernel Loss = 1.4832
 Epoch 600: Avg Prediction Loss = 0.3481, Avg Kernel Loss = 1.4749 
 ```
 ![Figure 1](expected_output.png)
-
-
+You can also choose between the two different posterior approximation algorithms and override the other hyperparameters directly from the command line:
+- `--algorithms`: choose between `svgd` and `bbvi`
+- `--n_samples`: number of Monte Carlo realizations
+- `--num_train`: number of train examples
+- `--hidden_shape`, `--hidden_shape_2`: hydden layer sizes for the network (hidden_shape 16, hidden_shape_2)
+- `learning_rate`, `batch_size`, `epochs`: training hyperparameters
 
 ## Dependencies
 Wololo requires:
@@ -93,9 +97,9 @@ n_samples = 10
 dummy_input = torch.randn(batch_size, input_dim)
 SVGD_model(dummy_input, n_samples)
 ```
-The model is not ready for training and inference with probabilistic predictions.
+The model is now ready for training and inference with probabilistic predictions.
 ## Training and Inference
-The converted models will now output probabilistic predictions. This needs to be taken into account when performing inference. We suggest using `torch.vmap` to vectorize the computation of the loss:
+The NBBs will output probabilistic predictions. This needs to be taken into account when performing inference. We suggest using `torch.vmap` to vectorize the computation of the loss:
 ```python
 probabilistic_preds = Wololo_model(input, n_samples) # Shape: [n_samples, batch_size, output_dim]
 criterion = torch.nn.MSELoss()
@@ -137,14 +141,6 @@ kernel_loss.backward()
 # Optimize the parameters
 optimizer.step()
 ```
-
-### Example
-A test script (test.py) is provided to help you get started. It demostrates how to convert a simple feed-forward network to its Bayesian counterpart. The BNN is then used to approximate a toy deterministic function. You can try different the two different posterior approximation algorithms and override the other hyperparameters directly from the command line:
-- `--algorithms`: choose between `svgd` and `bbvi`
-- `--n_samples`: number of Monte Carlo realizations
-- `--num_train`: number of train examples
-- `--hidden_shape`, `--hidden_shape_2`: hydden layer sizes for the network (hidden_shape 16, hidden_shape_2)
-- `learning_rate`, `batch_size`, `epochs`: training hyperparameters
 
 ## Advanced usage
 - the `parameter_list` attribute of Converters() allows to perform Hybrid Bayesian conversion: users wanting to mix up deterministic networks with stochastic ones are free to specify layer names or parameter groups and the Converter will take of the rest: 
